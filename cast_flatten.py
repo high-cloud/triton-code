@@ -11,7 +11,7 @@ def cast_kernel(
     BLOCK_Y: tl.constexpr,
     BLOCK_X: tl.constexpr,
 ):
-    pid_m = tl.program_id(0)  # 程序 ID
+    pid = tl.program_id(0)  # 程序 ID
     
     blk_beg = pid * BLOCK_Y
     X1 = tl.arange(0, BLOCK_X)
