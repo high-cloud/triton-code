@@ -26,8 +26,8 @@ def triton_func(x0: torch.Tensor) -> torch.Tensor:
     output = torch.empty_like(x0)
     grid = lambda meta: (triton.cdiv(x0.shape[0], meta['BLOCK_Y']),)
     cast_kernel[grid](
-        x0.ptr,
-        output.ptr,
+        x0,
+        output,
         BLOCK_Y=16,
         BLOCK_X=32,
     )
