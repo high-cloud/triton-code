@@ -17,7 +17,7 @@ def reduce_sum_kernel(
 
     # 计算当前 block 的起始位置
     b_idx = pid_b * BLOCK_B + tl.arange(0, BLOCK_B)
-    h_idx = tl.arange(0, H)  # H 轴和 BLOCK_H 一致，直接使用整个 H
+    h_idx = tl.arange(0, BLOCK_H)
     w_idx = tl.arange(0, BLOCK_W)
 
     # 计算全局索引：idx = b * (H * W) + h * W + w
