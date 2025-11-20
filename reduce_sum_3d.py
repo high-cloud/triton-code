@@ -8,28 +8,25 @@ import triton.language as tl
 def reduce_sum_kernel(
     input_ptr,  # 输入张量的指针
     output_ptr,  # 输出张量的指针
-    H: tl.constexpr,  # height 维度大小
-    W: tl.constexpr,  # width 维度大小（最后一根轴）
     BLOCK_B: tl.constexpr,  # batch 维度的 block 大小
-    BLOCK_H: tl.constexpr,  # height 维度的 block 大小
+    BLOCK_H: tl.constexpr,  # height 维度大小
     BLOCK_W: tl.constexpr,  # width 维度的 block 大小（reduce 维度）
 ):
-    # 获取当前处理的 batch 和 height 索引
+    # 获取当前处理的 batch 索引
     pid_b = tl.program_id(0)  # batch 维度的程序 ID
-    pid_h = tl.program_id(1)  # height 维度的程序 ID
-    
+
     # 计算当前 block 的起始位置
     b_idx = pid_b * BLOCK_B + tl.arange(0, BLOCK_B)
-    h_idx = pid_h * BLOCK_H + tl.arange(0, BLOCK_H)
+    h_idx = tl.arange(0, H)  # H 轴和 BLOCK_H 一致，直接使用整个 H
     w_idx = tl.arange(0, BLOCK_W)
-    
+
     # 计算全局索引：idx = b * (H * W) + h * W + w
     b_expanded = b_idx[:, None, None]  # [BLOCK_B, 1, 1]
-    h_expanded = h_idx[None, :, None]  # [1, BLOCK_H, 1]
+    h_expanded = h_idx[None, :, None]  # [1, H, 1]
     w_expanded = w_idx[None, None, :]  # [1, 1, BLOCK_W]
-    
-    global_idx = b_expanded * (H * W) + h_expanded * W + w_expanded
-    
+
+    global_idx = b_expanded * (BLOCK_H * BLOCK_W) + h_expanded * BLOCK_W + w_expanded
+
     # 加载数据（无 mask）
     values = tl.load(input_ptr + global_idx)
     
@@ -37,7 +34,7 @@ def reduce_sum_kernel(
     acc = tl.sum(values, axis=2)
     
     # 存储结果：output[b, h] = sum(input[b, h, :])
-    output_idx = b_idx[:, None] * H + h_idx[None, :]
+    output_idx = b_idx[:, None] * BLOCK_H + h_idx[None, :]
     tl.store(output_ptr + output_idx, acc)
 
 
@@ -54,13 +51,10 @@ def triton_func(x: torch.Tensor) -> torch.Tensor:
     
     # 设置 block 大小（必须能整除对应维度）
     BLOCK_B = 4  # 必须能整除 B=4
-    BLOCK_H = 8  # 必须能整除 H=8
     BLOCK_W = 32  # 必须能整除 W=32
+    # H 轴和 BLOCK_H 一致，不需要切分
     
-    grid = lambda meta: (
-        triton.cdiv(B, meta['BLOCK_B']),
-        triton.cdiv(H, meta['BLOCK_H']),
-    )
+    grid = lambda meta: (triton.cdiv(B, meta['BLOCK_B']),)
     
     reduce_sum_kernel[grid](
         x,
@@ -68,7 +62,6 @@ def triton_func(x: torch.Tensor) -> torch.Tensor:
         H=H,
         W=W,
         BLOCK_B=BLOCK_B,
-        BLOCK_H=BLOCK_H,
         BLOCK_W=BLOCK_W,
     )
     
