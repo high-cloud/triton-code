@@ -51,6 +51,7 @@ def triton_func(x: torch.Tensor) -> torch.Tensor:
     
     # 设置 block 大小（必须能整除对应维度）
     BLOCK_B = 4  # 必须能整除 B=4
+    BLOCK_H = 8  # 必须能整除 H=8
     BLOCK_W = 32  # 必须能整除 W=32
     # H 轴和 BLOCK_H 一致，不需要切分
     
@@ -59,9 +60,8 @@ def triton_func(x: torch.Tensor) -> torch.Tensor:
     reduce_sum_kernel[grid](
         x,
         output,
-        H=H,
-        W=W,
         BLOCK_B=BLOCK_B,
+        BLOCK_H=BLOCK_H,
         BLOCK_W=BLOCK_W,
     )
     
