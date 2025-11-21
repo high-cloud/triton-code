@@ -69,7 +69,7 @@ def triton_func(x: torch.Tensor) -> torch.Tensor:
 
 
 def torch_func(x: torch.Tensor) -> torch.Tensor:
-    return torch.min(x, dim=-1)
+    return torch.min(x, dim=-1).values
 
 
 if __name__ == "__main__":
