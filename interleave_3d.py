@@ -5,7 +5,7 @@ import triton.language as tl
 
 
 @triton.jit
-def interleave_kernel(
+def triton_kernel(
     x_ptr,  # 输入张量 x 的指针 (B, H, W)
     y_ptr,  # 输入张量 y 的指针 (B, H, W)
     output_ptr,  # 输出张量的指针 (B, H, 2*W)
@@ -33,17 +33,19 @@ def interleave_kernel(
     x_values = tl.load(x_ptr + input_idx)
     y_values = tl.load(y_ptr + input_idx)
 
-    # interleave: output[b, h, 2*w] = x[b, h, w], output[b, h, 2*w+1] = y[b, h, w]
-    # 输出索引：output[b, h, 2*w] 和 output[b, h, 2*w+1]
-    output_w_even = w_expanded * 2  # [1, 1, BLOCK_W] -> 偶数位置
-    output_w_odd = w_expanded * 2 + 1  # [1, 1, BLOCK_W] -> 奇数位置
+    # 使用 interleave API：沿着最后一个维度交错 x 和 y
+    # interleaved 的形状为 [BLOCK_B, BLOCK_H, 2*BLOCK_W]
+    interleaved = tl.interleave(x_values, y_values)
+
+    # 输出索引：需要覆盖整个 2*BLOCK_W 范围
+    # output[b, h, w_out] 其中 w_out 从 0 到 2*BLOCK_W-1
+    w_out_idx = tl.arange(0, BLOCK_W * 2)  # [2*BLOCK_W]
+    w_out_expanded = w_out_idx[None, None, :]  # [1, 1, 2*BLOCK_W]
     
-    output_idx_even = b_expanded * (BLOCK_H * BLOCK_W * 2) + h_expanded * (BLOCK_W * 2) + output_w_even
-    output_idx_odd = b_expanded * (BLOCK_H * BLOCK_W * 2) + h_expanded * (BLOCK_W * 2) + output_w_odd
+    output_idx = b_expanded * (BLOCK_H * BLOCK_W * 2) + h_expanded * (BLOCK_W * 2) + w_out_expanded
 
     # 存储交错结果
-    tl.store(output_ptr + output_idx_even, x_values)
-    tl.store(output_ptr + output_idx_odd, y_values)
+    tl.store(output_ptr + output_idx, interleaved)
 
 
 def triton_func(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -67,7 +69,7 @@ def triton_func(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     
     grid = lambda meta: (triton.cdiv(B, meta['BLOCK_B']),)
     
-    interleave_kernel[grid](
+    triton_kernel[grid](
         x,
         y,
         output,
