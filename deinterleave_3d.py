@@ -5,122 +5,83 @@ import triton.language as tl
 
 
 @triton.jit
-def deinterleave_slice_kernel(
-    input_ptr,  # 输入张量的指针 (B, H, 2*W)，交错的张量
-    output_ptr,  # 输出张量的指针 (B, H, W)
-    input_shape_0,  # B
-    input_shape_1,  # H
-    input_shape_2,  # 2*W
-    input_stride_0,  # H * 2*W
-    input_stride_1,  # 2*W
-    input_stride_2,  # 1
+def triton_kernel(
+    input_ptr,  # 输入张量的指针 (4, 8, 64)，交错的张量
+    output_ptr,  # 输出张量的指针 (4, 8, 32)
     channel_idx,  # 0 或 1，表示提取哪个通道（0=偶数位置，1=奇数位置）
-    slice_size_0,  # B
-    slice_size_1,  # H
-    slice_size_2,  # W
-    BLOCK_SIZE: tl.constexpr,
+    BLOCK_B: tl.constexpr,  # batch 维度的 block 大小
+    BLOCK_H: tl.constexpr,  # height 维度大小
+    BLOCK_W: tl.constexpr,  # width 维度的 block 大小
 ):
-    pid = tl.program_id(0)
-    block_start = pid * BLOCK_SIZE
-    indices = block_start + tl.arange(0, BLOCK_SIZE)
+    # 固定维度大小
+    B = 4
+    H = 8
+    W = 32
+    W_input = 64
+    
+    # 获取当前处理的 batch 索引
+    pid_b = tl.program_id(0)  # batch 维度的程序 ID
 
-    # 计算输出索引 (B, H, W)
-    idx_0 = indices // (slice_size_1 * slice_size_2)  # b
-    idx_1 = (indices // slice_size_2) % slice_size_1  # h
-    idx_2 = indices % slice_size_2  # w
+    # 计算当前 block 的起始位置
+    b_idx = pid_b * BLOCK_B + tl.arange(0, BLOCK_B)
+    h_idx = tl.arange(0, BLOCK_H)
+    w_idx = tl.arange(0, BLOCK_W)
 
-    # 在输入中，最后一维的索引需要考虑步长 2 和通道索引
+    # 计算全局索引
+    b_expanded = b_idx[:, None, None]  # [BLOCK_B, 1, 1]
+    h_expanded = h_idx[None, :, None]  # [1, BLOCK_H, 1]
+    w_expanded = w_idx[None, None, :]  # [1, 1, BLOCK_W]
+
+    # 输入索引：input[b, h, 2*w + channel_idx]
     # 对于 channel_idx=0，取偶数索引 (0, 2, 4, ...)
     # 对于 channel_idx=1，取奇数索引 (1, 3, 5, ...)
-    input_idx_0 = idx_0
-    input_idx_1 = idx_1
-    input_idx_2 = idx_2 * 2 + channel_idx  # 关键：步长为 2，加上通道偏移
+    input_w_idx = w_expanded * 2 + channel_idx  # [1, 1, BLOCK_W]
+    
+    input_idx = b_expanded * (H * W_input) + h_expanded * W_input + input_w_idx
 
-    # 掩码（无 mask，因为维度固定）
-    # mask = (idx_0 < slice_size_0) & (idx_1 < slice_size_1) & (idx_2 < slice_size_2)
+    # 使用 extract_slice 的方式加载数据
+    # 通过 stride=2 和 offset=channel_idx 来提取切片
+    data = tl.load(input_ptr + input_idx)
 
-    # 计算输入指针偏移
-    input_offsets = (
-        input_idx_0 * input_stride_0 +
-        input_idx_1 * input_stride_1 +
-        input_idx_2 * input_stride_2
-    )
-    input_ptrs = input_ptr + input_offsets
+    # 输出索引：output[b, h, w]
+    output_idx = b_expanded * (H * W) + h_expanded * W + w_expanded
 
-    # 加载数据
-    data = tl.load(input_ptrs)
-
-    # 计算输出指针偏移
-    output_offsets = (
-        idx_0 * slice_size_1 * slice_size_2 +
-        idx_1 * slice_size_2 +
-        idx_2
-    )
-    output_ptrs = output_ptr + output_offsets
-    tl.store(output_ptrs, data)
+    # 存储结果
+    tl.store(output_ptr + output_idx, data)
 
 
 def triton_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     assert len(input_tensor.shape) == 3, "输入必须是三维张量"
     B, H, W_input = input_tensor.shape
-    assert W_input % 2 == 0, "输入的 W 维度必须是偶数"
-    W = W_input // 2
     
     # 固定维度大小，确保能被 block 大小整除
     assert B == 4, "B 维度必须为 4"
     assert H == 8, "H 维度必须为 8"
-    assert W == 32, "W 维度必须为 32（输入 W 必须是 64）"
+    assert W_input == 64, "输入 W 维度必须为 64"
+    W = 32
     
     # 输出形状：(B, H, W)
     x = torch.empty((B, H, W), device=input_tensor.device, dtype=input_tensor.dtype)
     y = torch.empty((B, H, W), device=input_tensor.device, dtype=input_tensor.dtype)
     
-    # 计算输入 stride
-    input_stride_0 = H * W_input  # B 维度的 stride
-    input_stride_1 = W_input      # H 维度的 stride
-    input_stride_2 = 1             # W 维度的 stride
+    # 设置 block 大小（必须能整除对应维度）
+    BLOCK_B = 4  # 必须能整除 B=4
+    BLOCK_H = 8  # 必须能整除 H=8
+    BLOCK_W = 32  # 必须能整除 W=32
     
-    # 设置 block 大小
-    BLOCK_SIZE = 1024  # 一次处理 1024 个元素
-    total_elements = B * H * W
-    
-    grid = lambda meta: (triton.cdiv(total_elements, meta['BLOCK_SIZE']),)
+    grid = lambda meta: (triton.cdiv(B, meta['BLOCK_B']),)
     
     # 提取 channel 0 (偶数位置 -> x)
-    deinterleave_slice_kernel[grid](
+    triton_kernel[grid](
         input_tensor,
         x,
-        B,           # input_shape_0
-        H,           # input_shape_1
-        W_input,     # input_shape_2
-        input_stride_0,
-        input_stride_1,
-        input_stride_2,
         0,           # channel_idx = 0 (偶数位置)
-        B,           # slice_size_0
-        H,           # slice_size_1
-        W,           # slice_size_2
-        BLOCK_SIZE=BLOCK_SIZE,
+        BLOCK_B=BLOCK_B,
+        BLOCK_H=BLOCK_H,
+        BLOCK_W=BLOCK_W,
     )
     
-    # 提取 channel 1 (奇数位置 -> y)
-    deinterleave_slice_kernel[grid](
-        input_tensor,
-        y,
-        B,           # input_shape_0
-        H,           # input_shape_1
-        W_input,     # input_shape_2
-        input_stride_0,
-        input_stride_1,
-        input_stride_2,
-        1,           # channel_idx = 1 (奇数位置)
-        B,           # slice_size_0
-        H,           # slice_size_1
-        W,           # slice_size_2
-        BLOCK_SIZE=BLOCK_SIZE,
-    )
-    
-    return x, y
+    return x
 
 
 def torch_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -129,10 +90,10 @@ def torch_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     B, H, W_input = input_tensor.shape
     W = W_input // 2
     reshaped = input_tensor.reshape(B, H, W, 2)  # (B, H, W, 2)
-    x, y = reshaped.split(1, dim=3)  # 每个是 (B, H, W, 1)
+    x, _ = reshaped.split(1, dim=3)  # 每个是 (B, H, W, 1)
     x = x.squeeze(3)  # (B, H, W)
-    y = y.squeeze(3)  # (B, H, W)
-    return x, y
+    # y = y.squeeze(3)  # (B, H, W)
+    return x
 
 
 if __name__ == "__main__":
