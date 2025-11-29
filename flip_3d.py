@@ -23,7 +23,7 @@ def triton_kernel(
     h_expanded = h_idx[None, :, None]
     w_expanded = w_idx[None, None, :]
 
-    output_idx = b_expanded * (H * W) + h_expanded * W + w_expanded
+    output_idx = b_expanded * (BLOCK_H * BLOCK_W) + h_expanded * BLOCK_W + w_expanded
 
     values = tl.load(input_ptr + output_idx)
     values_flipped = tl.flip(values, dim=2)
