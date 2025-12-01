@@ -34,7 +34,7 @@ def triton_kernel(
 
     for i in range(num_iter):
         w_expanded = w_expanded_base + i * BLOCK_W  # [1, BLOCK_W]
-        input_w_idx = w_expanded * 2 + channel_idx  # [1, BLOCK_W]
+        input_w_idx = w_expanded * 2 # [1, BLOCK_W]
     
         input_idx = h_expanded * w_size + input_w_idx
 
