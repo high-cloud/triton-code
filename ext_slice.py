@@ -17,12 +17,10 @@ def triton_kernel(
     W = 32
     W_input = 64
     
-    # 获取当前处理的 batch 索引
-    pid_b = tl.program_id(0)  # batch 维度的程序 ID
+    pid = tl.program_id(0)
 
     # 计算当前 block 的起始位置
-    b_idx = pid_b * BLOCK_B + tl.arange(0, BLOCK_B)
-    h_idx = tl.arange(0, BLOCK_H)
+    h_idx = pid * BLOCK_H + tl.arange(0, BLOCK_H)
     w_idx = tl.arange(0, BLOCK_W)
 
     # 计算全局索引
