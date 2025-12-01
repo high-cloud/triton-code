@@ -85,7 +85,7 @@ def torch_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     W = W_input // 2
     reshaped = input_tensor.reshape(H, W, 2)  # (H, W, 2)
     x, _ = reshaped.split(1, dim=2)  # 每个是 (H, W, 1)
-    x = x.squeeze(3)  # (H, W)
+    x = x.squeeze(2)  # (H, W)
     # y = y.squeeze(3)  # (H, W)
     return x
 
@@ -93,13 +93,13 @@ def torch_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 if __name__ == "__main__":
     torch.manual_seed(0)
     # 先创建两个原始张量并 interleave，然后测试 deinterleave
-    size = (8, 128)  # (B, H, W) 三维张量
+    size = (8, 128)  # (H, W) 二维张量
     x_orig = torch.randn(size, device="npu", dtype=torch.float32)
     y_orig = torch.randn(size, device="npu", dtype=torch.float32)
     
     # 创建交错的输入（模拟 interleave 的结果）
-    stacked = torch.stack([x_orig, y_orig], dim=0)  # (2, B, H, W)
-    input_tensor = stacked.permute(1, 2, 3, 0).reshape(4, 8, 64)  # (B, H, 2*W)
+    stacked = torch.stack([x_orig, y_orig], dim=0)  # (2, H, W)
+    input_tensor = stacked.permute(1, 2, 0).reshape(8, 64)  # (H, 2*W)
     
     x_triton, y_triton = triton_func(input_tensor)
     x_torch, y_torch = torch_func(input_tensor)
