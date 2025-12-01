@@ -40,7 +40,7 @@ def triton_kernel(
 
         data = tl.load(input_ptr + input_idx)
 
-        output_idx = b_expanded * (H * W) + h_expanded * W + w_expanded
+        output_idx = h_expanded * W + w_expanded
 
         tl.store(output_ptr + output_idx, data)
 
