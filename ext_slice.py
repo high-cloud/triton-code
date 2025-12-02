@@ -58,7 +58,7 @@ def triton_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]
     BLOCK_H = 8  # 必须能整除 H=8
     BLOCK_W = 32  # 必须能整除 W=32
 
-    grid = lambda meta: (triton.cdiv(B, meta['BLOCK_B']))
+    grid = lambda meta: (triton.cdiv(B, meta['BLOCK_B']),)
 
     # 提取 channel 0 (偶数位置 -> x)
     triton_kernel[grid](
