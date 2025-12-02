@@ -26,15 +26,16 @@ def triton_kernel(
     w_expanded_base = w_idx[None, None, :]  # [1, 1, BLOCK_W]
 
     num_iter = w_size // BLOCK_W // 2
+    w_output_size = w_size // 2
     for i in range(num_iter):
         w_expanded = w_expanded_base + i * BLOCK_W  # [1, BLOCK_W]
         input_w_idx = w_expanded * 2 # [1, BLOCK_W]
     
-        input_idx = b_expanded * (BLOCK_H * BLOCK_W * w_size) + h_expanded * (BLOCK_W * w_size) + input_w_idx
+        input_idx = b_expanded * (BLOCK_H * w_size) + h_expanded * w_size + input_w_idx
 
         data = tl.load(input_ptr + input_idx)
 
-        output_idx = h_expanded * (w_size // 2) + w_expanded
+        output_idx = b_expanded * (BLOCK_H * w_output_size) + h_expanded * (w_output_size) + w_expanded
 
         tl.store(output_ptr + output_idx, data)
 
@@ -50,9 +51,10 @@ def triton_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]
     W = 64
 
     # 输出形状：(B, H, W)
-    x = torch.empty((H, W), device=input_tensor.device, dtype=input_tensor.dtype)
+    x = torch.empty((B, H, W), device=input_tensor.device, dtype=input_tensor.dtype)
 
     # 设置 block 大小（必须能整除对应维度）
+    BLOCK_B = 4  # 必须能整除 B=4
     BLOCK_H = 8  # 必须能整除 H=8
     BLOCK_W = 32  # 必须能整除 W=32
 
