@@ -14,6 +14,7 @@ def triton_kernel(
     BLOCK_W: tl.constexpr,  # width 维度的 block 大小
 ):
     pid = tl.program_id(0)
+    w_size = 128
 
     # 计算当前 block 的起始位置
     b_idx = pid * BLOCK_B + tl.arange(0, BLOCK_B)
@@ -47,7 +48,7 @@ def triton_func(input_tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]
     # 固定维度大小，确保能被 block 大小整除
     assert B == 4, "B 维度必须为 4"
     assert H == 8, "H 维度必须为 8"
-    assert W_input == 128, "输入 W 维度必须为 64"
+    assert W_input == 128, "输入 W 维度必须为 128"
     W = 64
 
     # 输出形状：(B, H, W)
